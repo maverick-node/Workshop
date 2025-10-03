@@ -108,11 +108,11 @@ const Workshops = () => {
               </div>
               <div className="flex items-center space-x-2 bg-background/80 backdrop-blur-sm rounded-lg px-4 py-2">
                 <Users className="h-5 w-5 text-primary" />
-                <span className="text-sm font-medium">5,000+ Participants</span>
+                <span className="text-sm font-medium">150+ Participants</span>
               </div>
               <div className="flex items-center space-x-2 bg-background/80 backdrop-blur-sm rounded-lg px-4 py-2">
                 <Calendar className="h-5 w-5 text-primary" />
-                <span className="text-sm font-medium">200+ Workshops</span>
+                <span className="text-sm font-medium">30+ Workshops</span>
               </div>
               <div className="flex items-center space-x-2 bg-background/80 backdrop-blur-sm rounded-lg px-4 py-2">
                 <Award className="h-5 w-5 text-primary" />
