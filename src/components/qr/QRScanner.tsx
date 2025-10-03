@@ -40,12 +40,24 @@ const QRScanner = ({ open, onOpenChange, workshopId, workshopTitle }: QRScannerP
   const startCamera = async () => {
     setCameraError("");
     try {
-      if (!('mediaDevices' in navigator) || typeof navigator.mediaDevices.getUserMedia !== 'function') {
-        throw new Error("Camera APIs not supported in this browser");
-      }
       if (!window.isSecureContext) {
         // getUserMedia requires HTTPS or localhost
         throw new Error("Camera requires HTTPS (or localhost). Open the app over HTTPS.");
+      }
+
+      // Polyfill legacy getUserMedia if needed (webkit/moz/ms)
+      const navAny: any = navigator as any;
+      const legacyGUM = navAny.getUserMedia || navAny.webkitGetUserMedia || navAny.mozGetUserMedia || navAny.msGetUserMedia;
+      if (!('mediaDevices' in navigator)) {
+        (navigator as any).mediaDevices = {};
+      }
+      if (!navigator.mediaDevices.getUserMedia && legacyGUM) {
+        (navigator.mediaDevices as any).getUserMedia = (constraints: MediaStreamConstraints) =>
+          new Promise<MediaStream>((resolve, reject) => legacyGUM.call(navigator, constraints, resolve, reject));
+      }
+
+      if (!('mediaDevices' in navigator) || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        throw new Error("Camera APIs not supported in this browser");
       }
 
       // Try ideal back camera first
