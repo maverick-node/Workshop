@@ -1,73 +1,49 @@
-# Welcome to your Lovable project
+# Talent Forge - Separated Frontend & Backend
 
-## Project info
+This project is now organized with separate frontend and backend folders.
 
-**URL**: https://lovable.dev/projects/36126de1-ee95-4b90-a56a-7612123648e5
+## Project Structure
 
-## How can I edit this code?
+```
+talent-forge-book-main/
+├── frontend/          # React + Vite frontend
+│   ├── src/           # Source code
+│   ├── public/        # Static assets
+│   ├── package.json   # Frontend dependencies
+│   ├── vite.config.ts # Vite configuration
+│   └── .env           # Frontend environment variables
+├── backend/           # Express.js backend
+│   ├── server/        # Server code
+│   ├── package.json   # Backend dependencies
+│   └── .env           # Backend environment variables
+└── README.md          # This file
+```
 
-There are several ways of editing your application.
+## Running the Application
 
-**Use Lovable**
+### Backend (Port 3001)
+```bash
+cd backend
+npm install
+npm start
+```
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/36126de1-ee95-4b90-a56a-7612123648e5) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+### Frontend (Port 8089)
+```bash
+cd frontend
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## Configuration
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+- **Frontend**: Points to remote backend at `http://57.130.11.69:3001`
+- **Backend**: Runs on localhost:3001 (or deploy to remote server)
 
-**Use GitHub Codespaces**
+## Using with ngrok
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+1. Start frontend: `cd frontend && npm run dev`
+2. Start ngrok: `ngrok http 8089`
+3. Access app via ngrok URL
 
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/36126de1-ee95-4b90-a56a-7612123648e5) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+The frontend will make API requests to the remote backend server.
