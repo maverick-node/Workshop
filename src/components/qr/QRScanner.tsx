@@ -22,6 +22,7 @@ const QRScanner = ({ open, onOpenChange, workshopId, workshopTitle }: QRScannerP
   const [lastResult, setLastResult] = useState<string>("");
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkInResult, setCheckInResult] = useState<any>(null);
+  const [cameraError, setCameraError] = useState<string>("");
   const { toast } = useToast();
 
   useEffect(() => {
@@ -37,21 +38,61 @@ const QRScanner = ({ open, onOpenChange, workshopId, workshopTitle }: QRScannerP
   }, [open]);
 
   const startCamera = async () => {
+    setCameraError("");
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" }
-      });
+      if (!('mediaDevices' in navigator) || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+        throw new Error("Camera APIs not supported in this browser");
+      }
+      if (!window.isSecureContext) {
+        // getUserMedia requires HTTPS or localhost
+        throw new Error("Camera requires HTTPS (or localhost). Open the app over HTTPS.");
+      }
+
+      // Try ideal back camera first
+      const tryConstraints = async (constraints: MediaStreamConstraints) => {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      };
+
+      let mediaStream: MediaStream | null = null;
+      const constraintChain: MediaStreamConstraints[] = [
+        { video: { facingMode: { ideal: "environment" } } as MediaTrackConstraints },
+        { video: { facingMode: "environment" } as MediaTrackConstraints },
+        { video: true }
+      ];
+
+      for (const c of constraintChain) {
+        try {
+          mediaStream = await tryConstraints(c);
+          if (mediaStream) break;
+        } catch {
+          // try next constraint
+        }
+      }
+
+      // If still no stream, try selecting a back camera via enumerateDevices
+      if (!mediaStream) {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoInputs = devices.filter(d => d.kind === 'videoinput');
+        const backCam = videoInputs.find(d => /back|rear|environment/i.test(d.label));
+        const chosen = backCam || videoInputs[0];
+        if (!chosen) {
+          throw new Error("No camera devices found");
+        }
+        mediaStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: chosen.deviceId } } });
+      }
+
       setStream(mediaStream);
-      
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
-        videoRef.current.play();
+        try { await videoRef.current.play(); } catch {}
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error accessing camera:", error);
+      const message = String(error?.message || error || "Unable to access camera");
+      setCameraError(message);
       toast({
         title: "Camera Error",
-        description: "Unable to access camera. Please check permissions.",
+        description: message,
         variant: "destructive"
       });
     }
@@ -60,8 +101,13 @@ const QRScanner = ({ open, onOpenChange, workshopId, workshopTitle }: QRScannerP
   const stopCamera = () => {
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
-      setStream(null);
     }
+    if (videoRef.current) {
+      try {
+        (videoRef.current as any).srcObject = null;
+      } catch {}
+    }
+    setStream(null);
   };
 
   const scanQRCode = () => {
@@ -168,6 +214,7 @@ const QRScanner = ({ open, onOpenChange, workshopId, workshopTitle }: QRScannerP
               className="w-full h-64 object-cover"
               playsInline
               muted
+              autoPlay
             />
             <canvas
               ref={canvasRef}
@@ -179,6 +226,12 @@ const QRScanner = ({ open, onOpenChange, workshopId, workshopTitle }: QRScannerP
                 <div className="text-center">
                   <Camera className="h-12 w-12 mx-auto mb-2 opacity-50" />
                   <p>Camera not available</p>
+                  {cameraError && (
+                    <p className="mt-2 text-xs opacity-80 px-4">{cameraError}</p>
+                  )}
+                  <div className="mt-3 flex items-center justify-center gap-2">
+                    <Button size="sm" variant="outline" onClick={startCamera}>Retry</Button>
+                  </div>
                 </div>
               </div>
             )}
