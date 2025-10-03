@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { TrendingUp, Users, Calendar, Award } from "lucide-react";
 import { apiGet, getSession, type Workshop } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader as DialogHdr, DialogTitle as DialogTtl } from "@/components/ui/dialog";
+import UserQRCode from "@/components/qr/UserQRCode";
 
 const Workshops = () => {
   const [searchQuery, setSearchQuery] = useState("");
@@ -22,6 +23,8 @@ const Workshops = () => {
   const [error, setError] = useState<string | null>(null);
   const [userReservations, setUserReservations] = useState<Record<string, boolean>>({});
   const [myBookingsOpen, setMyBookingsOpen] = useState(false);
+  const [qrCodeOpen, setQrCodeOpen] = useState(false);
+  const [selectedWorkshopForQR, setSelectedWorkshopForQR] = useState<Workshop | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -140,6 +143,17 @@ const Workshops = () => {
               >
                 My bookings
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const user = getSession();
+                  if (!user) { window.location.href = "/login"; return; }
+                  setQrCodeOpen(true);
+                }}
+              >
+                My QR Code
+              </Button>
               {(searchQuery || Object.values(filters).some(f => f)) && (
                 <Button variant="outline" size="sm" onClick={clearFilters}>
                   Clear all filters
@@ -194,12 +208,81 @@ const Workshops = () => {
             {workshops.filter(w => userReservations[w.id]).length > 0 ? (
               workshops.filter(w => userReservations[w.id]).map(w => (
                 <div key={w.id} className="border-b border-border pb-2 last:border-0">
-                  <p className="font-medium text-card-foreground">{w.title}</p>
-                  <p className="text-sm text-muted-foreground">{w.date} • {w.trainer} • {w.location}</p>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-card-foreground">{w.title}</p>
+                      <p className="text-sm text-muted-foreground">{w.date} • {w.trainer} • {w.location}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedWorkshopForQR(w);
+                        setQrCodeOpen(true);
+                      }}
+                    >
+                      Get QR Code
+                    </Button>
+                  </div>
                 </div>
               ))
             ) : (
               <p className="text-sm text-muted-foreground">You have not booked any workshops yet.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* QR Code Dialog */}
+      <Dialog open={qrCodeOpen} onOpenChange={setQrCodeOpen}>
+        <DialogContent>
+          <DialogHdr>
+            <DialogTtl>My QR Code</DialogTtl>
+          </DialogHdr>
+          <div className="space-y-4">
+            {!selectedWorkshopForQR ? (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">Select a workshop to generate QR code:</p>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {workshops.filter(w => userReservations[w.id]).map(w => (
+                    <div
+                      key={w.id}
+                      className="p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+                      onClick={() => setSelectedWorkshopForQR(w)}
+                    >
+                      <div className="font-medium">{w.title}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {w.date} • {w.trainer} • {w.location}
+                      </div>
+                      <div className="text-xs text-green-600 mt-1">✓ Booked</div>
+                    </div>
+                  ))}
+                </div>
+                {workshops.filter(w => userReservations[w.id]).length === 0 && (
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground">You have not booked any workshops yet.</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-medium text-lg">{selectedWorkshopForQR.title}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedWorkshopForQR.date} • {selectedWorkshopForQR.trainer}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedWorkshopForQR(null)}
+                  >
+                    Change Workshop
+                  </Button>
+                </div>
+                <UserQRCode workshopId={selectedWorkshopForQR.id} />
+              </div>
             )}
           </div>
         </DialogContent>

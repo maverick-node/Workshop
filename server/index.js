@@ -3,6 +3,7 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
+import crypto from "crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +44,15 @@ function initDb() {
       FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(workshopId) REFERENCES workshops(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS attendance (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      workshopId TEXT NOT NULL,
+      checkedInAt TEXT NOT NULL,
+      UNIQUE(userId, workshopId),
+      FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(workshopId) REFERENCES workshops(id) ON DELETE CASCADE
+    );
   `);
 
   const hasAdmin = db.prepare("SELECT 1 FROM users WHERE email=?").get("admin@admin.com");
@@ -73,6 +83,19 @@ function initDb() {
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// QR Token management
+const qrTokens = new Map(); // token -> { userId, workshopId, expiresAt }
+
+// Clean expired tokens every 30 seconds
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, data] of qrTokens.entries()) {
+    if (data.expiresAt < now) {
+      qrTokens.delete(token);
+    }
+  }
+}, 30000);
 
 // Health
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -188,8 +211,99 @@ app.get("/admin/overview", async (_req, res) => {
   const users = dbh.prepare("SELECT id,name,email,role,createdAt FROM users").all();
   const workshops = dbh.prepare("SELECT * FROM workshops").all();
   const reservations = dbh.prepare("SELECT * FROM reservations").all();
-  res.json({ users, workshops, reservations });
+  const attendance = dbh.prepare("SELECT * FROM attendance").all();
+  res.json({ users, workshops, reservations, attendance });
 });
+
+// Generate QR token for user
+app.post("/qr/generate", async (req, res) => {
+  const { userId, workshopId } = req.body || {};
+  if (!userId || !workshopId) return res.status(400).json({ error: "userId and workshopId required" });
+  
+  // Verify user has reservation
+  const reservation = dbh.prepare("SELECT 1 FROM reservations WHERE userId=? AND workshopId=?").get(userId, workshopId);
+  if (!reservation) return res.status(400).json({ error: "No reservation found" });
+  
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = Date.now() + 10000; // 10 seconds
+  
+  qrTokens.set(token, { userId, workshopId, expiresAt });
+  
+  res.json({ token, expiresAt });
+});
+
+// Validate QR token and mark attendance
+app.post("/qr/validate", async (req, res) => {
+  const { token } = req.body || {};
+  if (!token) return res.status(400).json({ error: "token required" });
+  
+  const tokenData = qrTokens.get(token);
+  if (!tokenData) return res.status(400).json({ error: "Invalid or expired token" });
+  
+  if (tokenData.expiresAt < Date.now()) {
+    qrTokens.delete(token);
+    return res.status(400).json({ error: "Token expired" });
+  }
+  
+  const { userId, workshopId } = tokenData;
+  
+  // Get user details
+  const user = dbh.prepare("SELECT id,name,email FROM users WHERE id=?").get(userId);
+  if (!user) return res.status(404).json({ error: "User not found" });
+  
+  // Check if already attended
+  const existing = dbh.prepare("SELECT 1 FROM attendance WHERE userId=? AND workshopId=?").get(userId, workshopId);
+  if (existing) {
+    qrTokens.delete(token);
+    return res.status(400).json({ error: "Already checked in" });
+  }
+  
+  // Mark attendance
+  const attendanceId = String(Date.now());
+  const checkedInAt = new Date().toISOString();
+  dbh.prepare("INSERT INTO attendance (id,userId,workshopId,checkedInAt) VALUES (?,?,?,?)").run(attendanceId, userId, workshopId, checkedInAt);
+  
+  // Clean up token
+  qrTokens.delete(token);
+  
+  // Broadcast attendance event
+  broadcastEvent("attendance", {
+    id: attendanceId,
+    userId,
+    userName: user.name,
+    userEmail: user.email,
+    workshopId,
+    checkedInAt
+  });
+  
+  res.json({ 
+    success: true, 
+    user: { id: user.id, name: user.name, email: user.email },
+    workshopId,
+    checkedInAt
+  });
+});
+
+// Server-Sent Events for realtime notifications
+const sseClients = new Set();
+app.get("/events", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  const client = res;
+  sseClients.add(client);
+  req.on("close", () => {
+    sseClients.delete(client);
+  });
+});
+
+function broadcastEvent(event, data) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(payload); } catch {}
+  }
+}
 
 const PORT = process.env.PORT || 3001;
 const dbh = initDb();

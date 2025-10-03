@@ -13,11 +13,14 @@ import {
   Download,
   BarChart3,
   Settings,
-  Bell
+  Bell,
+  CheckCircle
 } from "lucide-react";
 import { apiGet, apiPost, apiPut, type Workshop, getSession } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader as DialogHdr, DialogTitle as DialogTtl } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import QRScanner from "@/components/qr/QRScanner";
 
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState("overview");
@@ -31,6 +34,9 @@ const AdminDashboard = () => {
   const { toast } = useToast();
   const [editOpen, setEditOpen] = useState(false);
   const [editData, setEditData] = useState<Workshop | null>(null);
+  const [qrScannerOpen, setQrScannerOpen] = useState(false);
+  const [selectedWorkshopForQR, setSelectedWorkshopForQR] = useState<Workshop | null>(null);
+  const [attendance, setAttendance] = useState<Array<{ id: string; userId: string; workshopId: string; checkedInAt: string }>>([]);
 
   function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
     const escapeCell = (value: unknown) => {
@@ -121,12 +127,13 @@ const AdminDashboard = () => {
     let active = true;
     (async () => {
       try {
-        const data = await apiGet<{ users: typeof users; workshops: Workshop[]; reservations: typeof reservations }>("/admin/overview");
+        const data = await apiGet<{ users: typeof users; workshops: Workshop[]; reservations: typeof reservations; attendance: typeof attendance }>("/admin/overview");
         if (!active) return;
         const prevReservationCount = reservations.length;
         setUsers(data.users);
         setWorkshops(data.workshops);
         setReservations(data.reservations);
+        setAttendance(data.attendance || []);
         if (prevReservationCount && data.reservations.length > prevReservationCount) {
           toast({ title: "New booking", description: "A new reservation has been made." });
         }
@@ -147,37 +154,56 @@ const AdminDashboard = () => {
       // Refresh admin data
       (async () => {
         try {
-          const data = await apiGet<{ users: typeof users; workshops: Workshop[]; reservations: typeof reservations }>("/admin/overview");
+          const data = await apiGet<{ users: typeof users; workshops: Workshop[]; reservations: typeof reservations; attendance: typeof attendance }>("/admin/overview");
           setUsers(data.users);
           setWorkshops(data.workshops);
           setReservations(data.reservations);
+          setAttendance(data.attendance || []);
         } catch {}
       })();
+    });
+    es.addEventListener("attendance", (evt: MessageEvent) => {
+      try {
+        const data = JSON.parse(evt.data || "{}");
+        toast({ title: "Check-in successful", description: `${data.userName} checked in!` });
+        // Refresh admin data
+        (async () => {
+          try {
+            const data = await apiGet<{ users: typeof users; workshops: Workshop[]; reservations: typeof reservations; attendance: typeof attendance }>("/admin/overview");
+            setUsers(data.users);
+            setWorkshops(data.workshops);
+            setReservations(data.reservations);
+            setAttendance(data.attendance || []);
+          } catch {}
+        })();
+      } catch {}
     });
     return () => { es.close(); };
   }, [toast]);
 
   const workshopIdToRegistrations = useMemo(() => {
-    const map: Record<string, Array<{ id: string; name: string; email: string }>> = {};
+    const map: Record<string, Array<{ id: string; name: string; email: string; verified: boolean }>> = {};
     reservations.forEach(r => {
       const u = users.find(u => u.id === r.userId);
       if (!u) return;
       if (!map[r.workshopId]) map[r.workshopId] = [];
-      map[r.workshopId].push({ id: u.id, name: u.name, email: u.email });
+      const isVerified = attendance.some(a => a.userId === r.userId && a.workshopId === r.workshopId);
+      map[r.workshopId].push({ id: u.id, name: u.name, email: u.email, verified: isVerified });
     });
     return map;
-  }, [reservations, users]);
+  }, [reservations, users, attendance]);
 
   const userIdToWorkshops = useMemo(() => {
-    const map: Record<string, Workshop[]> = {};
+    const map: Record<string, Array<{ workshop: Workshop; verified: boolean }>> = {};
     reservations.forEach(r => {
       const w = workshops.find(w => w.id === r.workshopId);
       if (!w) return;
       if (!map[r.userId]) map[r.userId] = [];
-      map[r.userId].push(w);
+      const isVerified = attendance.some(a => a.userId === r.userId && a.workshopId === r.workshopId);
+      map[r.userId].push({ workshop: w, verified: isVerified });
     });
     return map;
-  }, [reservations, workshops]);
+  }, [reservations, workshops, attendance]);
 
   const recentWorkshops = [
     {
@@ -316,16 +342,28 @@ const AdminDashboard = () => {
                           </div>
                           <div className="flex items-center gap-3">
                             <p className="text-sm font-medium">{(w.totalSeats - w.availableSeats)}/{w.totalSeats} booked</p>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedWorkshopId(w.id);
-                                setAttendeesOpen(true);
-                              }}
-                            >
-                              View attendees
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedWorkshopId(w.id);
+                                  setAttendeesOpen(true);
+                                }}
+                              >
+                                View attendees
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedWorkshopForQR(w);
+                                  setQrScannerOpen(true);
+                                }}
+                              >
+                                QR Check-in
+                              </Button>
+                            </div>
                           </div>
                         </div>
                         {/* Hide inline registrations list in overview per requirements */}
@@ -436,8 +474,22 @@ const AdminDashboard = () => {
                       </div>
                       {userIdToWorkshops[u.id] && (
                         <ul className="mt-2 list-disc pl-5 text-sm text-muted-foreground space-y-1">
-                          {userIdToWorkshops[u.id].map(w => (
-                            <li key={w.id}>{w.title} • {w.date} • {w.trainer}</li>
+                          {userIdToWorkshops[u.id].map(({ workshop, verified }) => (
+                            <li key={workshop.id} className="flex items-center gap-2">
+                              <span>{workshop.title} • {workshop.date} • {workshop.trainer}</span>
+                              {verified && (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger>
+                                      <CheckCircle className="h-3 w-3 text-green-500" />
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p>Verified by QR check-in</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              )}
+                            </li>
                           ))}
                         </ul>
                       )}
@@ -506,7 +558,21 @@ const AdminDashboard = () => {
                 <ul className="space-y-2">
                   {workshopIdToRegistrations[selectedWorkshopId].map(u => (
                     <li key={u.id} className="flex items-center justify-between border-b border-border pb-2 last:border-0">
-                      <span className="text-card-foreground">{u.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-card-foreground">{u.name}</span>
+                        {u.verified && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger>
+                                <CheckCircle className="h-4 w-4 text-green-500" />
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Verified by QR check-in</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
                       <span className="text-muted-foreground text-sm">{u.email}</span>
                     </li>
                   ))}
@@ -576,6 +642,14 @@ const AdminDashboard = () => {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* QR Scanner Dialog */}
+        <QRScanner
+          open={qrScannerOpen}
+          onOpenChange={setQrScannerOpen}
+          workshopId={selectedWorkshopForQR?.id || ""}
+          workshopTitle={selectedWorkshopForQR?.title}
+        />
       </div>
     </div>
   );
