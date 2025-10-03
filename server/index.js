@@ -53,6 +53,14 @@ function initDb() {
       FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(workshopId) REFERENCES workshops(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS qr_tokens (
+      token TEXT PRIMARY KEY,
+      workshopId TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      expiresAt TEXT NOT NULL,
+      used BOOLEAN DEFAULT FALSE,
+      FOREIGN KEY(workshopId) REFERENCES workshops(id) ON DELETE CASCADE
+    );
   `);
 
   const hasAdmin = db.prepare("SELECT 1 FROM users WHERE email=?").get("admin@admin.com");
@@ -232,55 +240,179 @@ app.post("/qr/generate", async (req, res) => {
   res.json({ token, expiresAt });
 });
 
-// Validate QR token and mark attendance
+// Validate QR token and mark attendance (legacy endpoint - now supports both old and new tokens)
 app.post("/qr/validate", async (req, res) => {
   const { token } = req.body || {};
   if (!token) return res.status(400).json({ error: "token required" });
   
+  // Try both old in-memory tokens and new database tokens
   const tokenData = qrTokens.get(token);
-  if (!tokenData) return res.status(400).json({ error: "Invalid or expired token" });
   
-  if (tokenData.expiresAt < Date.now()) {
+  if (tokenData) {
+    // Handle old in-memory token format
+    if (tokenData.expiresAt < Date.now()) {
+      qrTokens.delete(token);
+      return res.status(400).json({ error: "Token expired" });
+    }
+    
+    const { userId, workshopId } = tokenData;
+    
+    // Get user details
+    const user = dbh.prepare("SELECT id,name,email FROM users WHERE id=?").get(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    
+    // Check if already attended
+    const existing = dbh.prepare("SELECT 1 FROM attendance WHERE userId=? AND workshopId=?").get(userId, workshopId);
+    if (existing) {
+      qrTokens.delete(token);
+      return res.status(400).json({ error: "Already checked in" });
+    }
+    
+    // Mark attendance
+    const attendanceId = String(Date.now());
+    const checkedInAt = new Date().toISOString();
+    dbh.prepare("INSERT INTO attendance (id,userId,workshopId,checkedInAt) VALUES (?,?,?,?)").run(attendanceId, userId, workshopId, checkedInAt);
+    
+    // Clean up token
     qrTokens.delete(token);
-    return res.status(400).json({ error: "Token expired" });
+    
+    // Broadcast attendance event
+    broadcastEvent("attendance", {
+      id: attendanceId,
+      userId,
+      userName: user.name,
+      userEmail: user.email,
+      workshopId,
+      checkedInAt
+    });
+    
+    res.json({ 
+      success: true, 
+      user: { id: user.id, name: user.name, email: user.email },
+      workshopId,
+      checkedInAt
+    });
+  } else {
+    // Handle QR tokens that need workshop ID to be validated
+    return res.status(400).json({ error: "Invalid token format. Please use workshop-specific QR validation." });
+  }
+});
+
+// Generate QR token for workshop (admin endpoint)
+app.post("/qr/generate-workshop", async (req, res) => {
+  const { workshopId } = req.body || {};
+  if (!workshopId) return res.status(400).json({ error: "workshopId required" });
+  
+  // Verify workshop exists
+  const workshop = dbh.prepare("SELECT id,title FROM workshops WHERE id=?").get(workshopId);
+  if (!workshop) return res.status(404).json({ error: "Workshop not found" });
+  
+  // Clean up expired QR tokens for this workshop
+  const now = Date.now();
+  dbh.prepare("DELETE FROM qr_tokens WHERE expiresAt < ? OR workshopId = ?")
+     .run(String(now), workshopId);
+  
+  // Generate new token with short expiration (10-30 seconds)
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = now + (Math.random() * 20000) + 10000; // 10-30 seconds
+  
+  dbh.prepare("INSERT INTO qr_tokens (token, workshopId, createdAt, expiresAt) VALUES (?, ?, ?, ?)")
+     .run(token, workshopId, String(now), String(expiresAt));
+  
+  // Get current attendance count for this workshop
+  const attendanceCount = dbh.prepare("SELECT COUNT(*) as count FROM attendance WHERE workshopId = ?")
+     .get(workshopId).count || 0;
+  
+  res.json({ 
+    token, 
+    attendanceCount
+  });
+});
+
+// Validate workshop QR token and mark attendance
+app.post("/qr/validate-workshop", async (req, res) => {
+  const { token, workshopId, userId } = req.body || {};
+  if (!token || !workshopId || !userId) {
+    return res.status(400).json({ error: "token, workshopId, and userId required" });
   }
   
-  const { userId, workshopId } = tokenData;
-  
-  // Get user details
+  // Verify user exists (should be logged in)
   const user = dbh.prepare("SELECT id,name,email FROM users WHERE id=?").get(userId);
   if (!user) return res.status(404).json({ error: "User not found" });
   
-  // Check if already attended
-  const existing = dbh.prepare("SELECT 1 FROM attendance WHERE userId=? AND workshopId=?").get(userId, workshopId);
-  if (existing) {
-    qrTokens.delete(token);
-    return res.status(400).json({ error: "Already checked in" });
+  // Verify user has reservation for this workshop
+  const reservation = dbh.prepare("SELECT 1 FROM reservations WHERE userId=? AND workshopId=?")
+     .get(userId, workshopId);
+  if (!reservation) return res.status(400).json({ error: "No reservation found for this workshop" });
+  
+  // Check QR token validity
+  const qrData = dbh.prepare("SELECT * FROM qr_tokens WHERE token=? AND workshopId=?")
+     .get(token, workshopId);
+  
+  if (!qrData) {
+    return res.status(400).json({ error: "Invalid QR token for this workshop" });
   }
   
-  // Mark attendance
-  const attendanceId = String(Date.now());
-  const checkedInAt = new Date().toISOString();
-  dbh.prepare("INSERT INTO attendance (id,userId,workshopId,checkedInAt) VALUES (?,?,?,?)").run(attendanceId, userId, workshopId, checkedInAt);
+  if (qrData.used) {
+    return res.status(400).json({ error: "QR token already used" });
+  }
   
-  // Clean up token
-  qrTokens.delete(token);
+  const now = Date.now();
+  if (parseInt(qrData.expiresAt) < now) {
+    dbh.prepare("DELETE FROM qr_tokens WHERE token=?").run(token);
+    return res.status(400).json({ error: "QR token expired" });
+  }
+  
+  // Check if user already attended
+  const existingAttendance = dbh.prepare("SELECT 1 FROM attendance WHERE userId=? AND workshopId=?")
+     .get(userId, workshopId);
+  if (existingAttendance) {
+    return res.status(400).json({ error: "Already checked in for this workshop" });
+  }
+  
+  // Mark attendance and invalidate QR token
+  const tx = dbh.transaction(() => {
+    const attendanceId = crypto.randomUUID();
+    const checkedInAt = new Date().toISOString();
+    dbh.prepare("INSERT INTO attendance (id,userId,workshopId,checkedInAt) VALUES (?,?,?,?)")
+       .run(attendanceId, userId, workshopId, checkedInAt);
+    dbh.prepare("UPDATE qr_tokens SET used = TRUE WHERE token = ?").run(token);
+  });
+  
+  tx();
   
   // Broadcast attendance event
   broadcastEvent("attendance", {
-    id: attendanceId,
+    id: crypto.randomUUID(),
     userId,
     userName: user.name,
     userEmail: user.email,
     workshopId,
-    checkedInAt
+    checkedInAt: new Date().toISOString()
   });
+
+  // Generate new QR token for continued use (auto-refresh)
+  const newToken = crypto.randomBytes(32).toString('hex');
+  const newExpiresAt = now + (Math.random() * 20000) + 10000;
+  
+  // Broadcast QR used event to trigger regeneration
+  broadcastEvent("qr_used", {
+    workshopId,
+    userName: user.name,
+    newToken: newToken,
+    timestamp: newExpiresAt
+  });
+  
+  dbh.prepare("INSERT INTO qr_tokens (token, workshopId, createdAt, expiresAt) VALUES (?, ?, ?, ?)")
+     .run(newToken, workshopId, String(now), String(newExpiresAt));
   
   res.json({ 
     success: true, 
     user: { id: user.id, name: user.name, email: user.email },
     workshopId,
-    checkedInAt
+    checkedInAt: new Date().toISOString(),
+    newToken, // For potential auto-refresh scenarios
+    newExpiresAt
   });
 });
 

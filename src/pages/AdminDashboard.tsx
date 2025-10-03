@@ -20,7 +20,7 @@ import { apiGet, apiPost, apiPut, type Workshop, getSession } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader as DialogHdr, DialogTitle as DialogTtl } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import QRScanner from "@/components/qr/QRScanner";
+import AdminQRDisplay from "@/components/qr/AdminQRDisplay";
 
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState("overview");
@@ -34,8 +34,8 @@ const AdminDashboard = () => {
   const { toast } = useToast();
   const [editOpen, setEditOpen] = useState(false);
   const [editData, setEditData] = useState<Workshop | null>(null);
-  const [qrScannerOpen, setQrScannerOpen] = useState(false);
-  const [selectedWorkshopForQR, setSelectedWorkshopForQR] = useState<Workshop | null>(null);
+  const [qrDisplayOpen, setQrDisplayOpen] = useState(false);
+  const [selectedWorkshopForDisplay, setSelectedWorkshopForDisplay] = useState<Workshop | null>(null);
   const [attendance, setAttendance] = useState<Array<{ id: string; userId: string; workshopId: string; checkedInAt: string }>>([]);
 
   function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
@@ -357,11 +357,11 @@ const AdminDashboard = () => {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => {
-                                  setSelectedWorkshopForQR(w);
-                                  setQrScannerOpen(true);
+                                  setSelectedWorkshopForDisplay(w);
+                                  setQrDisplayOpen(true);
                                 }}
                               >
-                                QR Check-in
+                                Display QR
                               </Button>
                             </div>
                           </div>
@@ -643,12 +643,11 @@ const AdminDashboard = () => {
           </DialogContent>
         </Dialog>
 
-        {/* QR Scanner Dialog */}
-        <QRScanner
-          open={qrScannerOpen}
-          onOpenChange={setQrScannerOpen}
-          workshopId={selectedWorkshopForQR?.id || ""}
-          workshopTitle={selectedWorkshopForQR?.title}
+        {/* Admin QR Display Dialog */}
+        <AdminQRDisplay
+          open={qrDisplayOpen}
+          onOpenChange={setQrDisplayOpen}
+          workshop={selectedWorkshopForDisplay}
         />
       </div>
     </div>

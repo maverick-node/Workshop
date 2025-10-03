@@ -9,10 +9,6 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8089,
     strictPort: true,
-allowedHosts: [
-      'hospitably-logomachic-violet.ngrok-free.dev', // add your ngrok URL here
-      'localhost',
-    ],
     proxy: {
       "/api": {
         target: "http://localhost:3001",

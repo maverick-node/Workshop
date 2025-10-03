@@ -43,7 +43,7 @@ const Header = () => {
           {/* Logo */}
           <div className="flex items-center space-x-2">
             <GraduationCap className="h-8 w-8 text-primary" />
-            <span className="text-xl font-bold text-foreground">Elevate</span>
+            <span className="text-xl font-bold text-foreground">SkillForge</span>
           </div>
 
           {/* Desktop Navigation */}
