@@ -225,7 +225,7 @@ app.post("/qr/generate", async (req, res) => {
   if (!reservation) return res.status(400).json({ error: "No reservation found" });
   
   const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = Date.now() + 10000; // 10 seconds
+  const expiresAt = Date.now() + 30000; // 30 seconds
   
   qrTokens.set(token, { userId, workshopId, expiresAt });
   

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { apiPost } from "@/lib/api";
 import { QrCode, Camera, CheckCircle, XCircle, User, Calendar, Mail } from "lucide-react";
+import QrReader from "react-qr-scanner";
 import { useToast } from "@/hooks/use-toast";
 
 interface QRScannerProps {
@@ -26,12 +27,7 @@ const QRScanner = ({ open, onOpenChange, workshopId, workshopTitle }: QRScannerP
   const { toast } = useToast();
 
   useEffect(() => {
-    if (open) {
-      startCamera();
-    } else {
-      stopCamera();
-    }
-    
+    // We rely on QrReader to manage camera when scanning. Ensure cleanup on close.
     return () => {
       stopCamera();
     };
@@ -123,26 +119,7 @@ const QRScanner = ({ open, onOpenChange, workshopId, workshopTitle }: QRScannerP
   };
 
   const scanQRCode = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const context = canvas.getContext("2d");
-    
-    if (!context) return;
-    
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    
-    // Simple QR code detection (in a real app, you'd use a proper QR library)
-    // For now, we'll simulate scanning
-    const qrData = prompt("Enter QR code data (for demo purposes):");
-    if (qrData) {
-      handleQRResult(qrData);
-    }
+    // No-op; handled by QrReader onScan callback
   };
 
   const handleQRResult = async (qrData: string) => {
@@ -188,15 +165,7 @@ const QRScanner = ({ open, onOpenChange, workshopId, workshopTitle }: QRScannerP
     setScanning(true);
     setLastResult("");
     setCheckInResult(null);
-    
-    // Simulate continuous scanning
-    const interval = setInterval(() => {
-      if (scanning) {
-        scanQRCode();
-      } else {
-        clearInterval(interval);
-      }
-    }, 1000);
+    setCameraError("");
   };
 
   const stopScanning = () => {
@@ -219,31 +188,36 @@ const QRScanner = ({ open, onOpenChange, workshopId, workshopTitle }: QRScannerP
         </DialogHeader>
         
         <div className="space-y-4">
-          {/* Camera Feed */}
+          {/* Camera Feed / QR Reader */}
           <div className="relative bg-black rounded-lg overflow-hidden">
-            <video
-              ref={videoRef}
-              className="w-full h-64 object-cover"
-              playsInline
-              muted
-              autoPlay
-            />
-            <canvas
-              ref={canvasRef}
-              className="hidden"
-            />
-            
-            {!stream && (
+            {scanning ? (
+              <div className="w-full h-64">
+                <QrReader
+                  delay={300}
+                  className="w-full h-full object-cover"
+                  constraints={{ video: { facingMode: "environment" } } as any}
+                  onError={(err: any) => {
+                    console.error("QR Reader error:", err);
+                    setCameraError(String(err?.message || err));
+                  }}
+                  onScan={(data: any) => {
+                    const value = typeof data === "string" ? data : (data?.text || data?.rawValue || null);
+                    if (value && value !== lastResult && !checkingIn) {
+                      setLastResult(value);
+                      handleQRResult(value);
+                    }
+                  }}
+                  style={{ width: "100%", height: "100%" } as any}
+                />
+              </div>
+            ) : (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-900 text-white">
                 <div className="text-center">
                   <Camera className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>Camera not available</p>
+                  <p>Camera ready</p>
                   {cameraError && (
                     <p className="mt-2 text-xs opacity-80 px-4">{cameraError}</p>
                   )}
-                  <div className="mt-3 flex items-center justify-center gap-2">
-                    <Button size="sm" variant="outline" onClick={startCamera}>Retry</Button>
-                  </div>
                 </div>
               </div>
             )}
