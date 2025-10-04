@@ -13,10 +13,7 @@ export default defineConfig(({ mode }) => ({
       host: 'elevate01.site',
       port: 8089,
     },
-    allowedHosts: [
-      'elevate01.site',
-      'localhost',
-    ],
+    allowedHosts: true,
     proxy: {
       "/api": {
         target: process.env.NGROK_BACKEND_URL || "http://api.elevate01.site",
