@@ -9,12 +9,17 @@ export default defineConfig(({ mode }) => ({
     host: "0.0.0.0", // Allow external connections
     port: 8089,
     strictPort: true,
+    hmr: {
+      host: 'elevate01.site',
+      port: 8089,
+    },
     allowedHosts: [
-      'hospitably-logomachic-violet.ngrok-free.dev', // add your ngrok host here
+      'elevate01.site',
+      'localhost',
     ],
     proxy: {
       "/api": {
-        target: process.env.NGROK_BACKEND_URL || "http://localhost:3001",
+        target: process.env.NGROK_BACKEND_URL || "http://api.elevate01.site",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
