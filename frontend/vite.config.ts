@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => ({
     allowedHosts: true,
     proxy: {
       "/api": {
-        target: process.env.NGROK_BACKEND_URL || "http://api.elevate01.site",
+        target: process.env.NGROK_BACKEND_URL || "https://api.elevate01.site",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
